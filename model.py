@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 import glob
 import os
-from torchvision.io import read_video, read_audio
+from torchvision.io import read_video
 
 
 class Picture2Feature(nn.Module):
@@ -84,20 +84,35 @@ class Model(pl.LightningModule):
         loss_audio = F.mse_loss(audio_hat, audio)
         loss = 0.1 * loss_classifier + loss_audio
         return loss
+    
+    def validation_step(self, batch, batch_idx):
+        video, audio = batch
+        # video: [batch, 29, 3, 256, 256], audio: [batch, 19456]
+        classifier, audio_hat = self(video)
+        predict_class = torch.argmax(classifier, dim=1)
+        loss_classifier = F.cross_entropy(classifier, predict_class)
+        loss_audio = F.mse_loss(audio_hat, audio)
+        loss = 0.1 * loss_classifier + loss_audio
+        return loss
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
-    def training_epoch_end(self, outputs):
+    def on_training_epoch_end(self, outputs):
         avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
         self.log("loss", avg_loss)
 
+    
+    def on_training_epoch_end(self, outputs):
+        avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
+        self.log("loss_val", avg_loss)
 
 class LRW_DataModule(pl.LightningDataModule):
-    def __init__(self, batch_size=32, path="path/to/LRW"):
+    def __init__(self, batch_size=32, path="path/to/LRW",num_workers=0):
         super(LRW_DataModule, self).__init__()
         self.batch_size = batch_size
         self.path = path
+        self.num_workers = num_workers
 
     def setup(self, stage=None):
         self.train_dataset = self.get_dataset(self.path, "train")
@@ -105,13 +120,13 @@ class LRW_DataModule(pl.LightningDataModule):
         self.test_dataset = self.get_dataset(self.path, "test")
 
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True)
+        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=True)
 
     def val_dataloader(self):
-        return torch.utils.data.DataLoader(self.val_dataset, batch_size=self.batch_size)
+        return torch.utils.data.DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
 
     def test_dataloader(self):
-        return torch.utils.data.DataLoader(self.test_dataset, batch_size=self.batch_size)
+        return torch.utils.data.DataLoader(self.test_dataset, batch_size=self.batch_size, num_workers=self.num_workers)
 
     def get_dataset(self, path, mode):
         # path is "path/lipread_mp4/{word}/{mode}/{word}_{index}.mp4"
@@ -123,22 +138,23 @@ class LRW_DataModule(pl.LightningDataModule):
                 self.files_list = files_list
 
             def __len__(self):
-                return len(self.files)
+                return len(self.files_list)
 
             def __getitem__(self, index):
-                filename = self.files[index]
+                filename = self.files_list[index]
                 # read video and audio
                 file = read_video(filename)
                 video, audio, _ = file
-                video = video.permute(0, 3, 1, 2)
+                video = video.permute(0, 3, 1, 2).float()
+                audio = audio.float()
                 return video, audio
         return Dataset(files_list)
 
 if __name__ == "__main__":
     # LRW video is (29, 3, 256, 256), audio is (1, 19456)
-    model = Model()
+    model = Model(num_classes=32, num_features=512, num_hidden=256, video_length=29, audio_length=19456)
     # dataset is LRW dataset
-    datamodule = LRW_DataModule(path="path/to/LRW")
+    datamodule = LRW_DataModule(path="/data1/wuyilei_dataset/LRW",batch_size=16,num_workers=16)
     trainer = pl.Trainer(max_epochs=10)
     trainer.fit(model, datamodule)
     trainer.test()
