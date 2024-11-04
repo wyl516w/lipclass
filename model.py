@@ -13,6 +13,7 @@ class VectorQuantizer(nn.Module):
         self.embedding_dim = embedding_dim
         self.commitment_cost = commitment_cost
         self.embeddings = nn.Embedding(num_embeddings, embedding_dim)
+
     def forward(self, x):
         flat_input = x.view(-1, self.embedding_dim)
         distances = torch.cdist(flat_input, self.embeddings.weight)
@@ -136,7 +137,11 @@ class Model(pl.LightningModule):
         audio_hat, feature, vq_loss = self(video)
         loss_audio = F.mse_loss(audio_hat, audio)
         loss = loss_audio + vq_loss
-        return loss
+        return {
+            "loss": loss,
+            "loss_audio": loss_audio,
+            "vq_loss": vq_loss,
+        }
 
     def validation_step(self, batch, batch_idx):
         video, audio = batch
@@ -144,21 +149,27 @@ class Model(pl.LightningModule):
         audio_hat, feature, vq_loss = self(video)
         loss_audio = F.mse_loss(audio_hat, audio)
         loss = loss_audio + vq_loss * 0.5
-        return loss
+        return {
+            "loss": loss,
+            "loss_audio": loss_audio,
+            "vq_loss": vq_loss,
+        }
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
     def on_training_batch_end(self, outputs, batch, batch_idx):
-        self.log("loss_tra", outputs, prog_bar=True)
+        self.log("loss_train_audio", outputs["loss_audio"], prog_bar=True)
+        self.log("loss_train_vq", outputs["vq_loss"], prog_bar=True)
 
     def on_validation_batch_end(self, outputs, batch, batch_idx):
-        self.log("loss_val", outputs, prog_bar=True)
+        self.log("loss_val_audio", outputs["loss_audio"], prog_bar=True)   
+        self.log("loss_val_vq", outputs["vq_loss"], prog_bar=True)
 
 
 if __name__ == "__main__":
     # LRW video is (29, 3, 256, 256), audio is (1, 19456)
-    torch.set_float32_matmul_precision('medium')
+    torch.set_float32_matmul_precision("medium")
     model = Model(
         num_classes=32,
         num_features=512,
@@ -167,11 +178,9 @@ if __name__ == "__main__":
         audio_length=19456,
     )
     # dataset is LRW dataset
-    datamodule = LRW_DataModule(
-        path="/ai/storage/LRW", batch_size=16, num_workers=4
-    )
+    datamodule = LRW_DataModule(path="/ai/storage/LRW", batch_size=16, num_workers=4)
     trainer = pl.Trainer(max_epochs=100)
     trainer.fit(model, datamodule)
-    trainer.test(model, datamodule, ckpt_path='best')
+    trainer.test(model, datamodule, ckpt_path="best")
     # save model and load
     torch.save(model.state_dict(), "model.pth")
