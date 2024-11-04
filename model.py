@@ -3,7 +3,7 @@ from torch import nn
 import torchvision
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from .dataset import LRW_DataModule
+from dataset import LRW_DataModule
 
 
 class VectorQuantizer(nn.Module):
@@ -143,23 +143,22 @@ class Model(pl.LightningModule):
         # video: [batch, 29, 3, 256, 256], audio: [batch, 19456]
         audio_hat, feature, vq_loss = self(video)
         loss_audio = F.mse_loss(audio_hat, audio)
-        loss = loss_audio + vq_loss
+        loss = loss_audio + vq_loss * 0.5
         return loss
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
-    def on_training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
-        self.log("loss", avg_loss)
+    def on_training_batch_end(self, outputs, batch, batch_idx):
+        self.log("loss_tra", outputs, prog_bar=True)
 
-    def on_training_epoch_end(self, outputs):
-        avg_loss = torch.stack([x["loss"] for x in outputs]).mean()
-        self.log("loss_val", avg_loss)
+    def on_validation_batch_end(self, outputs, batch, batch_idx):
+        self.log("loss_val", outputs, prog_bar=True)
 
 
 if __name__ == "__main__":
     # LRW video is (29, 3, 256, 256), audio is (1, 19456)
+    torch.set_float32_matmul_precision('medium')
     model = Model(
         num_classes=32,
         num_features=512,
@@ -169,8 +168,8 @@ if __name__ == "__main__":
     )
     # dataset is LRW dataset
     datamodule = LRW_DataModule(
-        path="/data1/wuyilei_dataset/LRW", batch_size=16, num_workers=16
+        path="/ai/storage/LRW", batch_size=16, num_workers=4
     )
-    trainer = pl.Trainer(max_epochs=10)
+    trainer = pl.Trainer(max_epochs=100)
     trainer.fit(model, datamodule)
-    trainer.test()
+    # trainer.test(model, datamodule, ckpt_path='best')

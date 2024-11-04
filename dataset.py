@@ -37,12 +37,12 @@ class LRW_DataModule(pl.LightningDataModule):
     def get_dataset(self, path, mode):
         # path is "path/lipread_mp4/{word}/{mode}/{word}_{index}.mp4"
         # glob path, end with .mp4
-        glob_path = os.path.join(path, "lipread_mp4", "*", mode, "*.mp4")
+        glob_path = os.path.join(path, "*", mode, "*.mp4")
         files_list = glob.glob(glob_path)
 
         class Dataset(torch.utils.data.Dataset):
             def __init__(self, files_list):
-                self.files_list = files_list
+                self.files_list = files_list[:1024]
 
             def __len__(self):
                 return len(self.files_list)
@@ -50,7 +50,7 @@ class LRW_DataModule(pl.LightningDataModule):
             def __getitem__(self, index):
                 filename = self.files_list[index]
                 # read video and audio
-                file = read_video(filename)
+                file = read_video(filename, pts_unit="sec")
                 video, audio, _ = file
                 video = video.permute(0, 3, 1, 2).float()
                 audio = audio.float()
