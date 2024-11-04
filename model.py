@@ -15,21 +15,14 @@ class VectorQuantizer(nn.Module):
         self.embeddings = nn.Embedding(num_embeddings, embedding_dim)
     def forward(self, x):
         flat_input = x.view(-1, self.embedding_dim)
-        distances = (
-            torch.sum(flat_input**2, dim=1, keepdim=True)
-            + torch.sum(self.embeddings.weight**2, dim=1)
-            - 2 * torch.matmul(flat_input, self.embeddings.weight.t())
-        )
+        distances = torch.cdist(flat_input, self.embeddings.weight)
         encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
         encodings = torch.zeros(
             encoding_indices.size(0), self.num_embeddings, device=x.device
         )
         encodings.scatter_(1, encoding_indices, 1)
-        # Quantize and unflatten
         quantized = torch.matmul(encodings, self.embeddings.weight).view(x.shape)
-        # Straight Through Estimator
         quantized = x + (quantized - x).detach()
-        # Loss
         e_latent_loss = F.mse_loss(quantized.detach(), x)
         q_latent_loss = F.mse_loss(quantized, x.detach())
         loss = q_latent_loss + self.commitment_cost * e_latent_loss
