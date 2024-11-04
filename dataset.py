@@ -42,7 +42,7 @@ class LRW_DataModule(pl.LightningDataModule):
 
         class Dataset(torch.utils.data.Dataset):
             def __init__(self, files_list):
-                self.files_list = files_list[:1024]
+                self.files_list = files_list
 
             def __len__(self):
                 return len(self.files_list)
