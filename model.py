@@ -172,4 +172,6 @@ if __name__ == "__main__":
     )
     trainer = pl.Trainer(max_epochs=100)
     trainer.fit(model, datamodule)
-    # trainer.test(model, datamodule, ckpt_path='best')
+    trainer.test(model, datamodule, ckpt_path='best')
+    # save model and load
+    torch.save(model.state_dict(), "model.pth")
